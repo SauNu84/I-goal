@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
@@ -6,7 +7,12 @@ import { Compass, Target, History, ArrowRight, Sparkles } from "lucide-react";
 
 export default async function DashboardPage() {
   const session = await getServerSession(authOptions);
-  const userId = session!.user.id;
+
+  if (!session?.user?.id) {
+    redirect("/login");
+  }
+
+  const userId = session.user.id;
 
   const [assessmentCount, latestResult, goalCount] = await Promise.all([
     prisma.assessmentSession.count({ where: { userId } }),
@@ -17,7 +23,7 @@ export default async function DashboardPage() {
     prisma.userGoal.count({ where: { userId } }),
   ]);
 
-  const firstName = session!.user.name?.split(" ")[0] || "there";
+  const firstName = session.user.name?.split(" ")[0] || "there";
 
   return (
     <div className="max-w-4xl">
