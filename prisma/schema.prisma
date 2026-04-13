@@ -1,0 +1,238 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------------------------------------------------------------------------
+// Auth (NextAuth standard)
+// ---------------------------------------------------------------------------
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  emailVerified DateTime?
+  passwordHash  String?
+  image         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  accounts           Account[]
+  sessions           Session[]
+  subscription       UserSubscription?
+  assessmentSessions AssessmentSession[]
+  sessionResults     SessionResult[]
+  goals              UserGoal[]
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ---------------------------------------------------------------------------
+// Subscription
+// ---------------------------------------------------------------------------
+
+enum SubscriptionTier {
+  free
+  premium
+}
+
+model UserSubscription {
+  id               String           @id @default(cuid())
+  userId           String           @unique
+  tier             SubscriptionTier @default(free)
+  startDate        DateTime         @default(now())
+  endDate          DateTime?
+  stripeCustomerId String?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ---------------------------------------------------------------------------
+// Strengths Framework
+// ---------------------------------------------------------------------------
+
+model StrengthDomain {
+  id          String @id @default(cuid())
+  name        String @unique
+  description String
+  color       String
+
+  themes StrengthTheme[]
+}
+
+model StrengthTheme {
+  id                   String @id @default(cuid())
+  domainId             String
+  name                 String @unique
+  definition           String
+  behavioralIndicators Json   @default("[]")
+  growthActions        Json   @default("[]")
+  blindSpots           Json   @default("[]")
+  rank                 Int
+
+  domain    StrengthDomain  @relation(fields: [domainId], references: [id], onDelete: Cascade)
+  questions QuestionItem[]
+  scores    StrengthScore[]
+
+  @@index([domainId])
+}
+
+model QuestionItem {
+  id           String @id @default(cuid())
+  themeId      String
+  textPositive String
+  textNegative String
+  weight       Float  @default(1.0)
+
+  theme     StrengthTheme     @relation(fields: [themeId], references: [id], onDelete: Cascade)
+  responses SessionResponse[]
+
+  @@index([themeId])
+}
+
+// ---------------------------------------------------------------------------
+// Assessment
+// ---------------------------------------------------------------------------
+
+enum AssessmentStatus {
+  in_progress
+  completed
+  abandoned
+}
+
+model AssessmentSession {
+  id            String           @id @default(cuid())
+  userId        String
+  status        AssessmentStatus @default(in_progress)
+  questionOrder Json             @default("[]")
+  startedAt     DateTime         @default(now())
+  completedAt   DateTime?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  user      User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  responses SessionResponse[]
+  result    SessionResult?
+
+  @@index([userId])
+}
+
+model SessionResponse {
+  id             String   @id @default(cuid())
+  sessionId      String
+  questionId     String
+  score          Int
+  answeredAt     DateTime @default(now())
+  responseTimeMs Int?
+
+  session  AssessmentSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  question QuestionItem      @relation(fields: [questionId], references: [id])
+
+  @@unique([sessionId, questionId])
+  @@index([sessionId])
+}
+
+// ---------------------------------------------------------------------------
+// Results
+// ---------------------------------------------------------------------------
+
+model SessionResult {
+  id               String   @id @default(cuid())
+  sessionId        String   @unique
+  userId           String
+  topFiveNarrative Json     @default("[]")
+  fullRanking      Json     @default("[]")
+  domainScores     Json     @default("{}")
+  shareToken       String?  @unique
+  generatedAt      DateTime @default(now())
+  createdAt        DateTime @default(now())
+
+  session AssessmentSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  user    User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  scores  StrengthScore[]
+  goals   UserGoal[]
+
+  @@index([userId])
+}
+
+model StrengthScore {
+  id         String @id @default(cuid())
+  resultId   String
+  themeId    String
+  rawScore   Float
+  percentile Float?
+  rank       Int
+
+  result SessionResult @relation(fields: [resultId], references: [id], onDelete: Cascade)
+  theme  StrengthTheme @relation(fields: [themeId], references: [id])
+
+  @@unique([resultId, themeId])
+  @@index([resultId])
+}
+
+// ---------------------------------------------------------------------------
+// Goals
+// ---------------------------------------------------------------------------
+
+enum GoalStatus {
+  not_started
+  in_progress
+  completed
+}
+
+model UserGoal {
+  id           String     @id @default(cuid())
+  userId       String
+  resultId     String?
+  title        String
+  description  String?
+  strengthTags Json       @default("[]")
+  status       GoalStatus @default(not_started)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  user   User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  result SessionResult? @relation(fields: [resultId], references: [id])
+
+  @@index([userId])
+}
