@@ -1,5 +1,42 @@
+import { unstable_cache } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { Badge } from "@/components/ui/badge";
+
+const getStrengthsFramework = unstable_cache(
+  async () => {
+    return prisma.strengthDomain.findMany({
+      select: {
+        id: true,
+        name: true,
+        description: true,
+        color: true,
+        themes: {
+          select: {
+            id: true,
+            name: true,
+            definition: true,
+            behavioralIndicators: true,
+            growthActions: true,
+            blindSpots: true,
+            rank: true,
+            questions: {
+              select: {
+                id: true,
+                textPositive: true,
+                textNegative: true,
+                weight: true,
+              },
+            },
+          },
+          orderBy: { rank: "asc" },
+        },
+      },
+      orderBy: { name: "asc" },
+    });
+  },
+  ["strengths-framework"],
+  { revalidate: 3600 }
+);
 
 /**
  * Admin/Debug view for strengths framework.
@@ -7,17 +44,7 @@ import { Badge } from "@/components/ui/badge";
  * Not intended for production users.
  */
 export default async function AdminStrengthsPage() {
-  const domains = await prisma.strengthDomain.findMany({
-    include: {
-      themes: {
-        include: {
-          questions: true,
-        },
-        orderBy: { rank: "asc" },
-      },
-    },
-    orderBy: { name: "asc" },
-  });
+  const domains = await getStrengthsFramework();
 
   const totalThemes = domains.reduce((sum, d) => sum + d.themes.length, 0);
   const totalQuestions = domains.reduce(
