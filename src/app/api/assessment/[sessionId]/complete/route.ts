@@ -3,6 +3,8 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { scoreAssessment, type ResponseInput } from "@/lib/scoring-engine";
+import { generateReportNarrative } from "@/lib/report-generator";
+import { getUserTier, getLimitsForTier } from "@/lib/tier";
 import { randomBytes } from "crypto";
 
 export async function POST(
@@ -78,6 +80,20 @@ export async function POST(
   // Run scoring engine
   const result = scoreAssessment(responseInputs);
 
+  // Generate AI narrative (premium feature, falls back to framework content for free)
+  const tier = await getUserTier(session.user.id);
+  const limits = getLimitsForTier(tier);
+  const hasAiNarrative = limits.features.has("ai_narrative");
+
+  let narrative;
+  if (hasAiNarrative) {
+    narrative = await generateReportNarrative(
+      result.topFive,
+      result.domainScores,
+      result.fullRanking
+    );
+  }
+
   // Generate share token
   const shareToken = randomBytes(16).toString("hex");
 
@@ -87,13 +103,32 @@ export async function POST(
   });
   const themeNameToId = new Map(themes.map((t) => [t.name, t.id]));
 
+  // Build the topFiveNarrative: either AI-generated or raw scores
+  const topFiveData = narrative
+    ? narrative.topFive
+    : result.topFive.map((t) => ({
+        themeName: t.themeName,
+        domainName: t.domainName,
+        rank: t.rank,
+        normalizedScore: t.normalizedScore,
+        narrative: "",
+        actionItems: [] as string[],
+        blindSpots: [] as string[],
+      }));
+
   // Create result and update session in a transaction
   const [sessionResult] = await prisma.$transaction([
     prisma.sessionResult.create({
       data: {
         sessionId,
         userId: session.user.id,
-        topFiveNarrative: JSON.parse(JSON.stringify(result.topFive)),
+        topFiveNarrative: JSON.parse(
+          JSON.stringify({
+            summary: narrative?.summary ?? "",
+            topFive: topFiveData,
+            domainInsight: narrative?.domainInsight ?? "",
+          })
+        ),
         fullRanking: JSON.parse(JSON.stringify(result.fullRanking)),
         domainScores: JSON.parse(JSON.stringify(result.domainScores)),
         shareToken,
