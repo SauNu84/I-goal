@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
@@ -8,7 +9,12 @@ import Link from "next/link";
 
 export default async function AssessmentPage() {
   const session = await getServerSession(authOptions);
-  const userId = session!.user.id;
+
+  if (!session?.user?.id) {
+    redirect("/login");
+  }
+
+  const userId = session.user.id;
 
   const [limit, inProgressSession, completedSessions] = await Promise.all([
     checkAssessmentLimit(userId),
